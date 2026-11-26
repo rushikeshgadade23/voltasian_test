@@ -1,0 +1,102 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // -----------------------------------------------------------------------
+    // Helper functions
+    // -----------------------------------------------------------------------
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function myRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && myRole() == 'admin';
+    }
+
+    function isAdminOrManager() {
+      return isAuthenticated() && myRole() in ['admin', 'manager'];
+    }
+
+    // -----------------------------------------------------------------------
+    // counters — used for auto-incrementing sequence numbers
+    // All authenticated users can read/write (needed for sequence generation)
+    // -----------------------------------------------------------------------
+    match /counters/{id} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // -----------------------------------------------------------------------
+    // users
+    // -----------------------------------------------------------------------
+    match /users/{userId} {
+      // Any signed-in user can read user profiles (needed for dropdowns, etc.)
+      allow read: if isAuthenticated();
+      // Only admins may create new user docs (via secondary-app approach)
+      allow create: if isAdmin();
+      // User can edit their own profile; admin can edit anyone's
+      allow update: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      // Only admins may (soft-)delete
+      allow delete: if isAdmin();
+    }
+
+    // -----------------------------------------------------------------------
+    // customers
+    // -----------------------------------------------------------------------
+    match /customers/{id} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdminOrManager();
+    }
+
+    // -----------------------------------------------------------------------
+    // technicians
+    // -----------------------------------------------------------------------
+    match /technicians/{id} {
+      allow read: if isAuthenticated();
+      // Technicians can update their own availability; admins/managers can do everything
+      allow update: if isAuthenticated() &&
+        (isAdminOrManager() ||
+         resource.data.user == request.auth.uid);
+      allow create, delete: if isAdminOrManager();
+    }
+
+    // -----------------------------------------------------------------------
+    // tickets — all authenticated users can create/update (technicians too)
+    // -----------------------------------------------------------------------
+    match /tickets/{id} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAdminOrManager();
+    }
+
+    // -----------------------------------------------------------------------
+    // installations — technicians need to update checklist items
+    // -----------------------------------------------------------------------
+    match /installations/{id} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdminOrManager();
+    }
+
+    // -----------------------------------------------------------------------
+    // invoices
+    // -----------------------------------------------------------------------
+    match /invoices/{id} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAdminOrManager();
+    }
+
+    // -----------------------------------------------------------------------
+    // payments
+    // -----------------------------------------------------------------------
+    match /payments/{id} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAdminOrManager();
+      allow delete: if isAdmin();
+    }
+  }
+}
